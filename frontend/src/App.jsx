@@ -603,21 +603,6 @@ function App() {
                 ))
             }
           </select>
-          <select value={constraintForm.requiredOptionId} onChange={(e) => setConstraintForm({ ...constraintForm, requiredOptionId: e.target.value })}>
-            <option value="">-- Required Option --</option>
-            {(adminConfig?.options || []).map((opt) => (
-              <option key={opt.id} value={opt.id}>{opt.label} ({opt.id})</option>
-            ))}
-          </select>
-          <select value={constraintForm.requiredOptionValue} onChange={(e) => setConstraintForm({ ...constraintForm, requiredOptionValue: e.target.value })}>
-            <option value="">-- Required Value --</option>
-            {constraintForm.requiredOptionId && 
-              (adminConfig?.options || [])
-                .find(opt => opt.id === constraintForm.requiredOptionId)?.values?.map((val) => (
-                  <option key={val.value} value={val.value}>{val.label} (${val.price})</option>
-                ))
-            }
-          </select>
           <input placeholder="Message" value={constraintForm.message} onChange={(e) => setConstraintForm({ ...constraintForm, message: e.target.value })} />
           <button className="button-primary" onClick={onCreateConstraint}>Create Constraint</button>
         </div>
