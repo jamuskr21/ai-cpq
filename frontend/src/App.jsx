@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import './App.css';
+import * as db from './localDB';
 
 function App() {
   const [config, setConfig] = useState(null);
@@ -25,8 +26,7 @@ function App() {
   useEffect(() => {
     const loadProducts = async () => {
       try {
-        const resp = await fetch('/api/products');
-        const data = await resp.json();
+        const data = await db.getProducts();
         setProducts(data);
         if (data.length > 0) {
           setSelectedProductId((prev) => prev || data[0].id);
@@ -44,8 +44,7 @@ function App() {
 
     const loadConfigForProduct = async () => {
       try {
-        const resp = await fetch(`/api/config?productId=${selectedProductId}`);
-        const data = await resp.json();
+        const data = await db.getConfig(selectedProductId);
         setConfig(data);
         setSelection({});
       } catch (e) {
@@ -55,14 +54,10 @@ function App() {
 
     const loadAdminConfig = async () => {
       try {
-        const cfgResp = await fetch(`/api/config?productId=${selectedProductId}`);
-        const cfg = await cfgResp.json();
+        const cfg = await db.getConfig(selectedProductId);
         setAdminConfig(cfg);
 
-        const constraintsResp = await fetch(`/api/admin/products/${selectedProductId}/constraints`, {
-          headers: { 'x-api-key': API_KEY },
-        });
-        const constraintsData = await constraintsResp.json();
+        const constraintsData = await db.getConstraints(selectedProductId);
         setConstraintsList(constraintsData);
       } catch (e) {
         console.error('Failed to load admin config', e);
@@ -71,64 +66,62 @@ function App() {
 
     loadConfigForProduct();
     loadAdminConfig();
-  }, [selectedProductId, API_KEY]);
+  }, [selectedProductId]);
 
   const constraints = config?.constraints || [];
 
-  const valueDisabled = (optionId, value) => {
-    for (const c of constraints) {
-      if (c.type === 'incompatible') {
-        if (c.optionId === optionId && c.optionValue === value) {
-          const other = selection[c.incompatibleOptionId];
-          if (other === c.incompatibleOptionValue) return true;
+  // Validation and pricing helpers
+  const validateSelection = (selection, config) => {
+    const errors = [];
+    
+    if (!config) return { valid: true, errors: [] };
+
+    // Check required fields
+    for (const option of config.options || []) {
+      if (option.required && !selection[option.id]) {
+        errors.push({ message: `${option.label} is required.` });
+      }
+    }
+
+    // Check constraints
+    for (const constraint of config.constraints || []) {
+      if (constraint.type === 'incompatible') {
+        if (selection[constraint.optionId] === constraint.optionValue && selection[constraint.incompatibleOptionId] === constraint.incompatibleOptionValue) {
+          errors.push({ message: constraint.message });
         }
-        if (c.incompatibleOptionId === optionId && c.incompatibleOptionValue === value) {
-          const other = selection[c.optionId];
-          if (other === c.optionValue) return true;
+      }
+
+      if (constraint.type === 'required') {
+        if (selection[constraint.optionId] === constraint.optionValue && selection[constraint.requiredOptionId] !== constraint.requiredOptionValue) {
+          errors.push({ message: constraint.message });
         }
       }
     }
-    return false;
+
+    return { valid: errors.length === 0, errors };
   };
 
-  const optionValues = (option) => option.values || [];
+  const computePrice = (selection, config) => {
+    if (!config) return 0;
 
-  const refreshValidationAndPrice = async (nextSelection) => {
-    try {
-      const validateRes = await fetch('/api/validate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(nextSelection),
-      });
-      const validationData = await validateRes.json();
-      setValidation(validationData);
+    let total = config.product?.basePrice || 0;
+    
+    for (const option of config.options || []) {
+      const selectedValue = selection[option.id];
+      if (!selectedValue) continue;
 
-      if (validationData.valid) {
-        const priceRes = await fetch('/api/price', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(nextSelection),
-        });
-        const priceData = await priceRes.json();
-        if (priceData.valid) {
-          setPrice(priceData.total);
-        } else {
-          setPrice(null);
-        }
-      } else {
-        setPrice(null);
+      const value = option.values?.find((v) => v.value === selectedValue);
+      if (value) {
+        total += value.price;
       }
-    } catch (e) {
-      console.error('validation/pricing failed', e);
-      setValidation({ valid: false, errors: [{ message: 'Validation service unavailable.' }] });
-      setPrice(null);
     }
+
+    return total;
   };
 
   const refreshProducts = async () => {
     try {
-      const resp = await fetch('/api/products');
-      const data = await resp.json();
+      const data = await db.getProducts();
       setProducts(data);
       if (data.length > 0 && !selectedProductId) {
         setSelectedProductId(data[0].id);
@@ -142,14 +135,10 @@ function App() {
     const productId = productIdParam || selectedProductId;
     if (!productId) return;
     try {
-      const cfgResp = await fetch(`/api/config?productId=${productId}`);
-      const cfg = await cfgResp.json();
+      const cfg = await db.getConfig(productId);
       setAdminConfig(cfg);
 
-      const constraintsResp = await fetch(`/api/admin/products/${productId}/constraints`, {
-        headers: { 'x-api-key': API_KEY },
-      });
-      const constraintsData = await constraintsResp.json();
+      const constraintsData = await db.getConstraints(productId);
       setConstraintsList(constraintsData);
     } catch (e) {
       console.error('Failed to refresh admin data', e);
@@ -158,12 +147,7 @@ function App() {
 
   const onCreateProduct = async () => {
     try {
-      const resp = await fetch('/api/admin/products', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
-        body: JSON.stringify(productForm),
-      });
-      if (!resp.ok) throw new Error((await resp.json()).error || 'Create failed');
+      await db.createProduct(productForm);
       setStatusMessage('Product created');
       setProductForm({ productId: '', name: '', basePrice: 0 });
       await refreshProducts();
@@ -198,22 +182,7 @@ function App() {
     };
 
     try {
-      const resp = await fetch(`/api/admin/products/${selectedProductId}/options`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
-        body: JSON.stringify(body),
-      });
-      if (!resp.ok) {
-        let errMessage = 'Create option failed';
-        const contentType = resp.headers.get('content-type');
-        if (contentType && contentType.includes('application/json')) {
-          const parsed = await resp.json();
-          errMessage = parsed.error || JSON.stringify(parsed);
-        } else {
-          errMessage = await resp.text();
-        }
-        throw new Error(errMessage);
-      }
+      await db.createOption(selectedProductId, body);
       setStatusMessage('Option created');
       setOptionForm({ optionId: '', label: '', controlType: 'dropdown', required: false });
       setOptionValueRows([{ value: '', label: '', price: 0 }]);
@@ -238,12 +207,7 @@ function App() {
 
   const onCreateConstraint = async () => {
     try {
-      const resp = await fetch(`/api/admin/products/${selectedProductId}/constraints`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
-        body: JSON.stringify(constraintForm),
-      });
-      if (!resp.ok) throw new Error((await resp.json()).error || 'Create constraint failed');
+      await db.createConstraint(selectedProductId, constraintForm);
       setStatusMessage('Constraint created');
       setConstraintForm({ type: 'incompatible', optionId: '', optionValue: '', incompatibleOptionId: '', incompatibleOptionValue: '', requiredOptionId: '', requiredOptionValue: '', message: '' });
       await refreshAdminData();
@@ -255,11 +219,7 @@ function App() {
 
   const onDeleteOption = async (optionId) => {
     try {
-      const resp = await fetch(`/api/admin/products/${selectedProductId}/options/${optionId}`, {
-        method: 'DELETE',
-        headers: { 'x-api-key': API_KEY },
-      });
-      if (!resp.ok) throw new Error((await resp.json()).error || 'Delete option failed');
+      await db.deleteOption(optionId);
       setStatusMessage('Option deleted');
       await refreshAdminData();
     } catch (e) {
@@ -270,11 +230,7 @@ function App() {
 
   const onDeleteOptionValue = async (optionId, value) => {
     try {
-      const resp = await fetch(`/api/admin/products/${selectedProductId}/options/${optionId}/values/${encodeURIComponent(value)}`, {
-        method: 'DELETE',
-        headers: { 'x-api-key': API_KEY },
-      });
-      if (!resp.ok) throw new Error((await resp.json()).error || 'Delete value failed');
+      await db.deleteOptionValue(optionId, value);
       setStatusMessage('Option value deleted');
       await refreshAdminData();
     } catch (e) {
@@ -285,11 +241,7 @@ function App() {
 
   const onDeleteConstraint = async (constraintId) => {
     try {
-      const resp = await fetch(`/api/admin/products/${selectedProductId}/constraints/${constraintId}`, {
-        method: 'DELETE',
-        headers: { 'x-api-key': API_KEY },
-      });
-      if (!resp.ok) throw new Error((await resp.json()).error || 'Delete constraint failed');
+      await db.deleteConstraint(constraintId);
       setStatusMessage('Constraint deleted');
       await refreshAdminData();
     } catch (e) {
@@ -298,11 +250,31 @@ function App() {
     }
   };
 
-  const onChange = (optionId, value) => {
-    const next = { ...selection, [optionId]: value };
-    setSelection(next);
-    refreshValidationAndPrice(next);
+  // Handle selection change with automatic validation/pricing
+  const handleSelectChange = (optionId, value) => {
+    const nextSelection = { ...selection, [optionId]: value };
+    setSelection(nextSelection);
+    setValidation(validateSelection(nextSelection, config));
+    setPrice(computePrice(nextSelection, config));
   };
+
+  const valueDisabled = (optionId, value) => {
+    for (const c of constraints) {
+      if (c.type === 'incompatible') {
+        if (c.optionId === optionId && c.optionValue === value) {
+          const other = selection[c.incompatibleOptionId];
+          if (other === c.incompatibleOptionValue) return true;
+        }
+        if (c.incompatibleOptionId === optionId && c.incompatibleOptionValue === value) {
+          const other = selection[c.optionId];
+          if (other === c.optionValue) return true;
+        }
+      }
+    }
+    return false;
+  };
+
+  const optionValues = (option) => option.values || [];
 
   const summaryItems = useMemo(() => {
     if (!config) return [];
@@ -374,7 +346,7 @@ function App() {
                   type="text"
                   value={selectedValue}
                   placeholder="Type here"
-                  onChange={(e) => onChange(option.id, e.target.value)}
+                  onChange={(e) => handleSelectChange(option.id, e.target.value)}
                 />
               </div>
             );
@@ -392,7 +364,7 @@ function App() {
                       value={optValue.value}
                       checked={selectedValue === optValue.value}
                       disabled={valueDisabled(option.id, optValue.value)}
-                      onChange={() => onChange(option.id, optValue.value)}
+                      onChange={() => handleSelectChange(option.id, optValue.value)}
                     />
                     {optValue.label} (+${optValue.price})
                   </label>
@@ -408,7 +380,7 @@ function App() {
                 <input
                   list={`list-${option.id}`}
                   value={selectedValue}
-                  onChange={(e) => onChange(option.id, e.target.value)}
+                  onChange={(e) => handleSelectChange(option.id, e.target.value)}
                 />
                 <datalist id={`list-${option.id}`}>
                   {optionValues(option).map((optValue) => (
@@ -425,7 +397,7 @@ function App() {
               <label>{option.label}</label>
               <select
                 value={selectedValue}
-                onChange={(e) => onChange(option.id, e.target.value)}
+                onChange={(e) => handleSelectChange(option.id, e.target.value)}
               >
                 <option value="">Select ...</option>
                 {optionValues(option).map((optValue) => (
