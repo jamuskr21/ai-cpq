@@ -219,7 +219,7 @@ function App() {
 
   const onDeleteOption = async (optionId) => {
     try {
-      await db.deleteOption(optionId);
+      await db.deleteOption(selectedProductId, optionId);
       setStatusMessage('Option deleted');
       await refreshAdminData();
     } catch (e) {
@@ -230,7 +230,7 @@ function App() {
 
   const onDeleteOptionValue = async (optionId, value) => {
     try {
-      await db.deleteOptionValue(optionId, value);
+      await db.deleteOptionValue(selectedProductId, optionId, value);
       setStatusMessage('Option value deleted');
       await refreshAdminData();
     } catch (e) {

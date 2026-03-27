@@ -61,15 +61,15 @@ const defaultData = {
     },
   ],
   optionValues: [
-    { optionId: 'trim', value: 'standard', label: 'Standard', price: 0, sortOrder: 0 },
-    { optionId: 'trim', value: 'sport', label: 'Sport', price: 3500, sortOrder: 100 },
-    { optionId: 'trim', value: 'luxury', label: 'Luxury', price: 7000, sortOrder: 200 },
-    { optionId: 'color', value: 'white', label: 'White', price: 0, sortOrder: 0 },
-    { optionId: 'color', value: 'black', label: 'Black', price: 300, sortOrder: 100 },
-    { optionId: 'color', value: 'red', label: 'Red', price: 500, sortOrder: 200 },
-    { optionId: 'tireBrand', value: 'goodyear', label: 'Goodyear', price: 400, sortOrder: 0 },
-    { optionId: 'tireBrand', value: 'michelin', label: 'Michelin', price: 500, sortOrder: 100 },
-    { optionId: 'tireBrand', value: 'pirelli', label: 'Pirelli', price: 550, sortOrder: 200 },
+    { productId: 'car', optionId: 'trim', value: 'standard', label: 'Standard', price: 0, sortOrder: 0 },
+    { productId: 'car', optionId: 'trim', value: 'sport', label: 'Sport', price: 3500, sortOrder: 100 },
+    { productId: 'car', optionId: 'trim', value: 'luxury', label: 'Luxury', price: 7000, sortOrder: 200 },
+    { productId: 'car', optionId: 'color', value: 'white', label: 'White', price: 0, sortOrder: 0 },
+    { productId: 'car', optionId: 'color', value: 'black', label: 'Black', price: 300, sortOrder: 100 },
+    { productId: 'car', optionId: 'color', value: 'red', label: 'Red', price: 500, sortOrder: 200 },
+    { productId: 'car', optionId: 'tireBrand', value: 'goodyear', label: 'Goodyear', price: 400, sortOrder: 0 },
+    { productId: 'car', optionId: 'tireBrand', value: 'michelin', label: 'Michelin', price: 500, sortOrder: 100 },
+    { productId: 'car', optionId: 'tireBrand', value: 'pirelli', label: 'Pirelli', price: 550, sortOrder: 200 },
   ],
   constraints: [
     {
@@ -140,7 +140,7 @@ export async function getConfig(productId = 'car') {
     .sort((a, b) => a.sortOrder - b.sortOrder)
     .map(opt => {
       const optionValues = db.optionValues
-        .filter(v => v.optionId === opt.optionId)
+        .filter(v => v.productId === productId && v.optionId === opt.optionId)
         .sort((a, b) => a.sortOrder - b.sortOrder)
         .map(v => ({ value: v.value, label: v.label, price: v.price }));
 
@@ -210,10 +210,7 @@ export async function deleteProduct(productId) {
   const db = getDB();
   db.products = db.products.filter(p => p.productId !== productId);
   db.options = db.options.filter(o => o.productId !== productId);
-  db.optionValues = db.optionValues.filter(v => {
-    const opt = db.options.find(o => o.optionId === v.optionId);
-    return opt !== undefined;
-  });
+  db.optionValues = db.optionValues.filter(v => v.productId !== productId);
   db.constraints = db.constraints.filter(c => c.productId !== productId);
   saveDB(db);
   return { id: productId };
@@ -230,7 +227,7 @@ export async function getOptions(productId) {
       controlType: o.controlType,
       required: o.isRequired,
       values: db.optionValues
-        .filter(v => v.optionId === o.optionId)
+        .filter(v => v.productId === productId && v.optionId === o.optionId)
         .sort((a, b) => a.sortOrder - b.sortOrder)
         .map(v => ({ value: v.value, label: v.label, price: v.price })),
     }));
@@ -258,6 +255,7 @@ export async function createOption(productId, option) {
     option.values.forEach((val, idx) => {
       if (val.value) {
         db.optionValues.push({
+          productId,
           optionId: option.optionId,
           value: val.value,
           label: val.label || val.value,
@@ -281,17 +279,17 @@ export async function updateOption(optionId, option) {
   return { optionId, ...option };
 }
 
-export async function deleteOption(optionId) {
+export async function deleteOption(productId, optionId) {
   const db = getDB();
-  db.options = db.options.filter(o => o.optionId !== optionId);
-  db.optionValues = db.optionValues.filter(v => v.optionId !== optionId);
+  db.options = db.options.filter(o => !(o.productId === productId && o.optionId === optionId));
+  db.optionValues = db.optionValues.filter(v => !(v.productId === productId && v.optionId === optionId));
   saveDB(db);
   return { optionId };
 }
 
-export async function deleteOptionValue(optionId, value) {
+export async function deleteOptionValue(productId, optionId, value) {
   const db = getDB();
-  db.optionValues = db.optionValues.filter(v => !(v.optionId === optionId && v.value === value));
+  db.optionValues = db.optionValues.filter(v => !(v.productId === productId && v.optionId === optionId && v.value === value));
   saveDB(db);
   return { optionId, value };
 }
