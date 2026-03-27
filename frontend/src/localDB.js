@@ -15,6 +15,16 @@ const defaultData = {
       name: 'Car',
       basePrice: 20000,
     },
+    {
+      productId: 'shoe',
+      name: 'Shoe',
+      basePrice: 15,
+    },
+    {
+      productId: 'reebok',
+      name: 'Reebok',
+      basePrice: 25,
+    },
   ],
   options: [
     {
